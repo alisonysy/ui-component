@@ -24,8 +24,6 @@
  *      logoSelector(string): required if [isForMediaSection] is set to true, it should be the selector of media logos, default to '.product-media .media-logos .m-item'
  *      activeLogoWidth(number): the width of the active logo in percentage
  *    }
- *    
- *    
  */
 function CustomSlider(id,isAuto,options={}){
   this._id = id;
@@ -41,7 +39,7 @@ function CustomSlider(id,isAuto,options={}){
 
   this._swiperSettings = {
     xSensitivity: options.swiperSettings? options.swiperSettings.xSensitivity || 0.5 : 0.5,
-    ySensitivity: options.swiperSettings? options.swiperSettings.ySensitivity || 0.1 : 0.1,
+    ySensitivity: options.swiperSettings? options.swiperSettings.ySensitivity || 0.2 : 0.2,
     isForMediaSection: options.swiperSettings? options.swiperSettings.isForMediaSection || false : false,
     activeLogoWidth: options.swiperSettings? options.swiperSettings.activeLogoWidth || 28 : 0
   };
@@ -64,6 +62,7 @@ CustomSlider.prototype.init = function(){
   }else{
     allLis = this.options.slideWrapper ? document.querySelectorAll(this.options.slideWrapper + ' > *') : document.querySelectorAll('#'+this._id+' > ul > *');
   }
+  console.log('in custom slider------',allLis);
   let firstCopied =this.copySlide(allLis[0]);
   let lastCopied = this.copySlide(allLis[allLis.length-1]);
   // insert the copies to wrapper;
@@ -75,7 +74,7 @@ CustomSlider.prototype.init = function(){
   // calculate current index and width;
   this._index = 0; // the current second child 
   this.bindEvents();
-  // console.log(firstCopied,lastCopied,'child',this._childrenCount);
+  console.log(firstCopied,lastCopied,'child',this._childrenCount);
   if(this.options.indicator){
     this.createIndicator();
   }
@@ -83,7 +82,6 @@ CustomSlider.prototype.init = function(){
 
 CustomSlider.prototype.setWidth = function(){
   let children = this._slide_wrapper.children;
-  // this._slide_wrapper.style.width = this._childrenCount*100 + '%'; 
   this._slide_wrapper.style.setProperty('width', this._childrenCount*100 + '%', 'important');
   for(let n=0;n<this._childrenCount;n++){
     children[n].style.width = 100 / this._childrenCount + '%';
@@ -154,7 +152,7 @@ CustomSlider.prototype.bindSwipeEvents = function(){
 
 CustomSlider.prototype.bindTouchEvents = function(container){
   const self = this;
-  let startX, startY,startTime,swipeTime;
+  let startX, startY,startTime,swipeTime,lastMoveY;
   let swipeYLimit = this._swiperSettings.ySensitivity * window.innerHeight,
       swipeXBase = this._swiperSettings.xSensitivity * window.innerWidth;
   let currentTranslate;
@@ -172,26 +170,27 @@ CustomSlider.prototype.bindTouchEvents = function(container){
   container.addEventListener('touchmove',function(e){
     if(!self._isSwiping && !_isTouchObj(e.touches[0])) return;
     const touch = e.touches[0];
-    let deltaX = touch.pageX - startX, deltaY = touch.pageY - startY, translateX;
-    if(Math.abs(deltaY)>swipeYLimit){ // assumes a user scrolls
+    let deltaX = touch.pageX - startX;
+    lastMoveY = touch.pageY - (lastMoveY? lastMoveY : startY);
+    let translateX;
+    if(Math.abs(lastMoveY)>swipeYLimit){ // assumes a user scrolls
       self._isSwiping = false;
+      self._restartSlide();
       return;
     }else{
-      if(e.cancelable){
-        e.preventDefault();
-      }else{
-        return;
-      }
+      self._isSwiping = true;
+      e.preventDefault();
     };
     self._slide_wrapper.style.transition = 'all '+ 0.8 +'s';
     translateX = Math.abs(deltaX) > self._offsetWidth? currentTranslate : (currentTranslate + deltaX);
     self._slide_wrapper.style.transform = "translateX(" + (translateX) + "px)";
   });
   container.addEventListener('touchend',function(e){
-    if(!self._isSwiping && !_isTouchObj(e.changedTouches[0])) return;
+    if(!_isTouchObj(e.changedTouches[0])) return;
     const touch = e.changedTouches[0];
     let deltaX = touch.pageX - startX, deltaY = touch.pageY - startY;
-    if(!self._isSwiping || Math.abs(deltaY)>swipeYLimit){
+    if(Math.abs(deltaY)>swipeYLimit){
+      self._slide_wrapper.style.transform = "translateX(" + (currentTranslate) + "px)";
       return;
     }else{
       e.preventDefault();
@@ -201,22 +200,30 @@ CustomSlider.prototype.bindTouchEvents = function(container){
     if(Math.abs(deltaX)<swipeXBase && swipeTime > 300){ 
       // translate the current slide but not to the next slide, and back to the current slide
       self._slide_wrapper.style.transform = "translateX(" + currentTranslate + "px)";
+      self._restartSlide();
     }else{
       if(deltaX > 0){// swipe from left to right, to previous slide
         self._translate(false,true);
         if(self._index===0){
           self._index = self._childrenCount - 2;
-          self.swapSameSlide();
+          self.setIndicatorClass();
+          setTimeout(function(){
+            self._translate(undefined,false);
+            self._restartSlide();
+          }, 650);
         }
       }else{// swipe from right to left, to next slide
         self._translate(true,true);
         if(self._index===self._childrenCount-1){
           self._index=1;
-          self.swapSameSlide();
+          self.setIndicatorClass();
+          setTimeout(function(){
+            self._translate(undefined,false);
+            self._restartSlide();
+          }, 650);
         }
       }
     };
-    self._restartSlide();
   });
   container.addEventListener('touchcancel',function(e){
     self._slide_wrapper.style.transform = "translateX(" + currentTranslate + "px)";
@@ -235,13 +242,57 @@ CustomSlider.prototype.swapSameSlide = function(){
 }
 
 CustomSlider.prototype.bindPointerEvents = function(container){
+  const self = this;
+  let startX, startY,startTime,swipeTime,lastMoveY;
+  let swipeYLimit = this._swiperSettings.ySensitivity * window.innerHeight;
+  let currentTranslate;
   container.addEventListener('pointerdown',function(e){
-    console.log('-----pointer down---',e)
+    console.log('-----pointer down---',e);
+    self._clearTimeOuts();
+    if(self._isSwiping) return;
+    self._isSwiping = true;
+    startTime = +new Date();
+    startX = e.pageX;
+    startY = e.pageY;
+    currentTranslate = parseFloat(self._slide_wrapper.style.transform.slice(self._slide_wrapper.style.transform.indexOf('(')+1))
   });
   container.addEventListener('pointermove',function(e){
     // continuously fired on safari with the pointer hovering - if the pointerType === 'mouse' return;
+    // if pointermove event is fired, no pointerup event will be fired
     if(e.pointerType === 'mouse') return;
-    console.log('---pointer move----------',e)
+    if(!self._isSwiping) return;
+    let deltaX = e.pageX - startX;
+    lastMoveY = e.pageY - (lastMoveY? lastMoveY : startY);
+    if(Math.abs(lastMoveY)>swipeYLimit){ // assumes a user scrolls
+      self._isSwiping = false;
+      self._restartSlide();
+      return;
+    }else{
+      self._isSwiping = true;
+      e.preventDefault();
+      self._slide_wrapper.style.transition = 'all '+ 0.8 +'s';
+      if(deltaX > 0){// swipe from left to right, to previous slide
+        self._translate(false,true);
+        if(self._index===0){
+          self._index = self._childrenCount - 2;
+          self.setIndicatorClass();
+          self._timeOutIds.push(setTimeout(function(){
+            self._translate(undefined,false);
+            self._restartSlide();
+          }, 650)); // if executes this.swapSameSlide(), setTimeout will not execute because of the _timeout
+        }
+      }else{// swipe from right to left, to next slide
+        self._translate(true,true);
+        if(self._index===self._childrenCount-1){
+          self._index=1;
+          self.setIndicatorClass();
+          self._timeOutIds.push(setTimeout(function(){
+            self._translate(undefined,false);
+            self._restartSlide();
+          }, 650));
+        }
+      }  
+    };
   });
   container.addEventListener('pointerup',function(e){
     console.log('-----will pointerup be fired on safari',e);
